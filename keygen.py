@@ -1,3 +1,6 @@
+# Wyager's simple BIP32 public generation script
+# https://github.com/wyager/Bitcoin-HD-wallet-generator
+
 import bitcoin
 import mnemonic
 import os
