@@ -8,28 +8,40 @@ with open("bitcoin_config.txt") as config_file:
 	desc, pubkey = config_file.readline().split()
 	if(desc != "master_pubkey:"):
 		print "Error reading pubkey"
-	pubkey = pubkey.decode('hex')
+	main_pubkey = pubkey.decode('hex')
 
 	desc, chain = config_file.readline().split()
 	if(desc != "master_chain:"):
 		print "Error reading chain"
-	chain = chain.decode('hex')
+	main_chain = chain.decode('hex')
 
 
 if (pubkey == None) or (chain == None):
 	print "Error loading config."
 	sys.exit(0)
 
-is_change = 0
-K0_n_m_a, Kc0_n_m_a, c0_n_m_a = bitcoin.CKD_prime(pubkey, chain, is_change) # K0_n_m_a can be derived from K0_n_m
-for i in range(0,5):
-	K0_n_m_b, Kc0_n_m_b, c0_n_m_b = bitcoin.CKD_prime(K0_n_m_a, c0_n_m_a, i) # K0_n_m_b can be derived from K0_n_m_a
-	addr0_n_m_b = bitcoin.hash_160_to_bc_address(bitcoin.hash_160(Kc0_n_m_b))
-	print "Addr 0_0_{}: ".format(i) + addr0_n_m_b
+def generate_from_pub(path, pubkey, chain):
+	"""
+	generate_from_pub(path, pubkey, chain) -> pubkey2, pubkey2_compressed, chain2
+	path is a list of tuples like [(index1, is_hardened),(index2, is_hardened)]
+	pubkey is the root pubkey
+	chain is the root chain
+	pubkey2, pubkey2_compressed, and chain2 are the results of following this BIP32 derivation path
+	Because this is a pubkey-based generation, none of the path elements may be hardened.
+	"""
+	(index, is_hardened), path2 = path[0], path[1:]
+	if is_hardened:
+		raise Exception("Error: Trying to derive a hardened address using the pubkey")
+	bip32_i = index
+	key2, key2_comp, chain2 = bitcoin.CKD_prime(pubkey,chain, bip32_i)
+	if len(path2) == 0:
+		return key2, key2_comp, chain2
+	else:
+		return generate(path2, key2, chain2)
 
-is_change = 1
-K0_n_m_a, Kc0_n_m_a, c0_n_m_a = bitcoin.CKD_prime(pubkey, chain, is_change) # K0_n_m_a can be derived from K0_n_m
-for i in range(0,5):
-	K0_n_m_b, Kc0_n_m_b, c0_n_m_b = bitcoin.CKD_prime(K0_n_m_a, c0_n_m_a, i) # K0_n_m_b can be derived from K0_n_m_a
-	addr0_n_m_b = bitcoin.hash_160_to_bc_address(bitcoin.hash_160(Kc0_n_m_b))
-	print "Change Addr 0_0_{}: ".format(i) + addr0_n_m_b
+for is_change in [0,1]:
+	receiving_pubkey, receiving_pubkey_compressed, receiving_chain = generate_from_pub([(is_change,False)], main_pubkey, main_chain)
+	for path, i in [([(i,False)],i) for i in range(5)]:
+		_, addr_pubkey_compressed, _ = generate_from_pub(path, receiving_pubkey, receiving_chain)
+		addr = bitcoin.hash_160_to_bc_address(bitcoin.hash_160(addr_pubkey_compressed))
+		print "m/{}/{} = {}".format(is_change, i, addr)

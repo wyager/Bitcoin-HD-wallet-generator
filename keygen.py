@@ -16,40 +16,37 @@ print "derived seed (raw): " + hex_seed_512
 # Master key, master chain, Master pubkey, Master pubkey (compressed format)
 k, c, K, Kcomp = bitcoin.bip32_init(hex_seed_512)
 
+def generate(path, key, chain):
+	"""
+	generate(path, key, chain) -> key2, chain2
+	path is a list of tuples like [(index1, is_hardened),(index2, is_hardened)]
+	key is the root private key
+	chain is the root chain
+	key2 and chain2 are the results of following this BIP32 derivation path
+	"""
+	(index, is_hardened), path2 = path[0], path[1:]
+	bip32_i = index + bitcoin.BIP32_PRIME if is_hardened else index 
+	key2, chain2 = bitcoin.CKD(key,chain, bip32_i)
+	if len(path2) == 0:
+		return key2, chain2
+	else:
+		return generate(path2, key2, chain2)
 
-print "Generating master branch 0..."
-k0, c0 = bitcoin.CKD(k, c, 0 + bitcoin.BIP32_PRIME) # K0 can't be derived from K
-K0, Kc0 = bitcoin.get_pubkeys_from_secret(k0)
+# An Array of (index,is_hardened) tuples
+path = [(0, True),(0, False)] # Corresponds to /0h/0
+main_key, main_chain = generate(path, k, c)
 
-for branch_number in [0]:
-	k0_n, c0_n = bitcoin.CKD(k0, c0, branch_number) # K0_n can be derived from K0
-	K0_n, Kc0_n= bitcoin.get_pubkeys_from_secret(k0_n)
+for is_change in [0,1]:
+	receiving_key, receiving_chain = generate([(is_change,False)], main_key, main_chain)
+	for path, i in [([(i,False)],i) for i in range(5)]:
+		addr_key, _ = generate(path, receiving_key, receiving_chain)
+		pubkey, pubkey_compressed = bitcoin.get_pubkeys_from_secret(addr_key)
+		addr = bitcoin.hash_160_to_bc_address(bitcoin.hash_160(pubkey_compressed))
+		print "m/0h/0/{}/{} = {}".format(is_change, i, addr)
 
-	is_change = 0
-	k0_n_m_a, c0_n_m_a = bitcoin.CKD(k0_n, c0_n, is_change) # K0_n_m_a can be derived from K0_n_m
-	K0_n_m_a, Kc0_n_m_a= bitcoin.get_pubkeys_from_secret(k0_n_m_a)
-	for i in range(0,5):
-		k0_n_m_b, c0_n_m_b = bitcoin.CKD(k0_n_m_a, c0_n_m_a, i) # K0_n_m_b can be derived from K0_n_m_a
-		K0_n_m_b, Kc0_n_m_b= bitcoin.get_pubkeys_from_secret(k0_n_m_b)
-		addr0_n_m_b = bitcoin.hash_160_to_bc_address(bitcoin.hash_160(Kc0_n_m_b))
-		print "Addr 0_{}_{}: ".format(branch_number, i) + addr0_n_m_b
-
-	is_change = 1
-	k0_n_m_a, c0_n_m_a = bitcoin.CKD(k0_n, c0_n, is_change) # K0_n_m_a can be derived from K0_n_m
-	K0_n_m_a, Kc0_n_m_a= bitcoin.get_pubkeys_from_secret(k0_n_m_a)
-	for i in range(0,5):
-		k0_n_m_b, c0_n_m_b = bitcoin.CKD(k0_n_m_a, c0_n_m_a, i) # K0_n_m_b can be derived from K0_n_m_a
-		K0_n_m_b, Kc0_n_m_b= bitcoin.get_pubkeys_from_secret(k0_n_m_b)
-		addr0_n_m_b = bitcoin.hash_160_to_bc_address(bitcoin.hash_160(Kc0_n_m_b))
-		print "Change Addr 0_{}_{}: ".format(branch_number, i) + addr0_n_m_b
-
-# print "Signature of \"foobar\":"
-# ec_key = bitcoin.regenerate_key(bitcoin.SecretToASecret(k_n, True))
-# #Message, whether the privkey (k_n) is compressed, and the address
-# print ec_key.sign_m_aessage("foobar", bitcoin.is_compressed(ec_key), addr_n)
-
+main_pubkey, main_pubkey_compressed = bitcoin.get_pubkeys_from_secret(main_key)
 
 print "Writing to file."
 with open("bitcoin_config.txt","w") as config_file:
-	config_file.write("master_pubkey: " + K0_n.encode('hex')  + "\n")
-	config_file.write("master_chain: " + c0_n.encode('hex') + "\n")
+	config_file.write("master_pubkey: " + main_pubkey.encode('hex')  + "\n")
+	config_file.write("master_chain: " + main_chain.encode('hex') + "\n")
